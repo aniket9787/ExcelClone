@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Advanced Mini Spreadsheet (A–Z, 100 Rows)</title>
+<style>
+  body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0; padding: 1rem; background: #fafafa;
+  }
+  h1 {
+    text-align: center;
+    margin-bottom: 1rem;
+  }
+  #toolbar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 1rem;
+    justify-content: center;
+  }
+  #toolbar select, #toolbar button, #toolbar input[type=color] {
+    padding: 0.3rem 0.6rem;
+    font-size: 1rem;
+  }
+  #toolbar button {
+    cursor: pointer;
+  }
+  #sheets-bar {
+    display: flex;
+    gap: 0.3rem;
+    justify-content: center;
+    margin-bottom: 1rem;
+  }
+  .sheet-tab {
+    background: white;
+    border: 1px solid #ccc;
+    padding: 0.4rem 1rem;
+    cursor: pointer;
+    border-bottom: none;
+    user-select: none;
+  }
+  .sheet-tab.active {
+    background: #e0e0e0;
+    font-weight: bold;
+  }
+  .spreadsheet-container {
+    overflow: auto;
+    border: 1px solid #ccc;
+    background: white;
+    margin: 0 auto;
+  }
+  .spreadsheet {
+    display: grid;
+    /* template set dynamically via JS */
+    user-select: none;
+  }
+  .cell, .header {
+    border: 1px solid #ddd;
+    box-sizing: border-box;
+    padding: 4px 8px;
+    line-height: 22px;
+    font-size: 14px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .header {
+    background-color: #f0f0f0;
+    font-weight: bold;
+    text-align: center;
+    position: sticky;
+    z-index: 2;
+  }
+  .header.column-header {
+    top: 0;
+  }
+  .row-header {
+    background-color: #f0f0f0;
+    text-align: center;
+    position: sticky;
+    left: 0;
+    z-index: 1;
+  }
+  input.cell-input {
+    width: 100%;
+    height: 100%;
+    border: none;
+    outline: none;
+    padding: 4px 8px;
+    font-size: 14px;
+    font-family: inherit;
+    box-sizing: border-box;
+  }
+  input.cell-input.error {
+    background-color: #ffe0e0;
+  }
+  /* Styling controls active states */
+  #toolbar button.selected {
+    background-color: #bbb;
+    color: white;
+  }
+</style>
+</head>
+<body>
+
+<h1>Advanced Mini Spreadsheet</h1>
+
+<div id="toolbar">
+  <button id="boldBtn" title="Bold (Ctrl+B)"><b>B</b></button>
+  <button id="italicBtn" title="Italic (Ctrl+I)"><i>I</i></button>
+  <button id="underlineBtn" title="Underline (Ctrl+U)"><u>U</u></button>
+
+  <select id="fontSizeSelect" title="Font Size">
+    <option value="12">12</option>
+    <option value="14" selected>14</option>
+    <option value="16">16</option>
+    <option value="18">18</option>
+    <option value="20">20</option>
+  </select>
+
+  <select id="fontFamilySelect" title="Font Family">
+    <option value="Arial" selected>Arial</option>
+    <option value="Courier New">Courier New</option>
+    <option value="Georgia">Georgia</option>
+    <option value="Tahoma">Tahoma</option>
+    <option value="Times New Roman">Times New Roman</option>
+  </select>
+
+  <input type="color" id="fontColorInput" title="Font Color" />
+  <input type="color" id="bgColorInput" title="Background Color" />
+
+  <button id="alignLeftBtn" title="Align Left">L</button>
+  <button id="alignCenterBtn" title="Align Center">C</button>
+  <button id="alignRightBtn" title="Align Right">R</button>
+</div>
+
+<div id="sheets-bar">
+  <button id="addSheetBtn" title="Add New Sheet">+ Add Sheet</button>
+</div>
+
+<div class="spreadsheet-container">
+  <div class="spreadsheet" id="spreadsheet"></div>
+</div>
+
+<script>
+  // === CONFIG ===
+  const ROWS = 100;
+  const COLS = 26; // A–Z
+
+  // === STATE ===
+  let sheets = [];
+  let currentSheetIndex = 0;
+  let lastFocusedCell = null;
+
+
+
+
+
+
+  
+
+  // === UI ELEMENTS ===
+  const spreadsheet = document.getElementById('spreadsheet');
+  const sheetsBar = document.getElementById('sheets-bar');
+  const addSheetBtn = document.getElementById('addSheetBtn');
+
+  const boldBtn = document.getElementById('boldBtn');
+  const italicBtn = document.getElementById('italicBtn');
+  const underlineBtn = document.getElementById('underlineBtn');
+  const fontSizeSelect = document.getElementById('fontSizeSelect');
+  const fontFamilySelect = document.getElementById('fontFamilySelect');
+  const fontColorInput = document.getElementById('fontColorInput');
+  const bgColorInput = document.getElementById('bgColorInput');
+  const alignLeftBtn = document.getElementById('alignLeftBtn');
+  const alignCenterBtn = document.getElementById('alignCenterBtn');
+  const alignRightBtn = document.getElementById('alignRightBtn');
+
+  // === HELPERS ===
+  function createSheetData() {
+    const sheet = [];
+    for (let r = 0; r < ROWS; r++) {
+      sheet[r] = [];
+      for (let c = 0; c < COLS; c++) {
+        sheet[r][c] = {
+          formula: "",
+          computed: "",
+          styles: {
+            bold: false,
+            italic: false,
+            underline: false,
+            fontSize: 14,
+            fontFamily: 'Arial',
+            fontColor: '#000000',
+            bgColor: '#ffffff',
+            textAlign: 'left',
+          }
+        };
+      }
+    }
+    return sheet;
+  }
+
+  function colToLetter(col) {
+    return String.fromCharCode(65 + col);
+  }
+
+  function addressToIndexes(addr) {
+    const colLetter = addr.match(/[A-Z]+/)[0];
+    const rowNum = parseInt(addr.match(/\d+/)[0], 10);
+    return { row: rowNum - 1, col: colLetter.charCodeAt(0) - 65 };
+  }
+
+  function rgbToHex(rgb) {
+    const m = rgb.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+    if (!m) return '#000';
+    return '#' + [1,2,3].map(i => parseInt(m[i]).toString(16).padStart(2,'0')).join('');
+  }
+
+  // === INITIALIZATION ===
+  function initSheets() {
+    sheets = [{ name: 'Sheet1', data: createSheetData() }];
+    currentSheetIndex = 0;
+    renderSheetTabs();
+    renderGrid();
+  }
+
+  function renderSheetTabs() {
+    // clear old tabs
+    Array.from(sheetsBar.children)
+      .filter(el => el !== addSheetBtn)
+      .forEach(el => el.remove());
+
+    sheets.forEach((sheet, idx) => {
+      const btn = document.createElement('button');
+      btn.textContent = sheet.name;
+      btn.className = 'sheet-tab';
+      if (idx === currentSheetIndex) btn.classList.add('active');
+      btn.onclick = () => {
+        currentSheetIndex = idx;
+        renderSheetTabs();
+        renderGrid();
+      };
+      sheetsBar.insertBefore(btn, addSheetBtn);
+    });
+  }
+
+  // === GRID RENDERING ===
+  function renderGrid() {
+    const sheetData = sheets[currentSheetIndex].data;
+    // set dynamic grid template
+    spreadsheet.style.gridTemplateColumns = `40px repeat(${COLS},100px)`;
+    spreadsheet.style.gridTemplateRows = `30px repeat(${ROWS},30px)`;
+    spreadsheet.innerHTML = '';
+
+    // top-left corner
+    const corner = document.createElement('div');
+    corner.className = 'header';
+    spreadsheet.appendChild(corner);
+
+    // column headers A–Z
+    for (let c = 0; c < COLS; c++) {
+      const h = document.createElement('div');
+      h.className = 'header column-header';
+      h.textContent = colToLetter(c);
+      spreadsheet.appendChild(h);
+    }
+
+    // rows
+    for (let r = 0; r < ROWS; r++) {
+      // row header
+      const rh = document.createElement('div');
+      rh.className = 'header row-header';
+      rh.textContent = r + 1;
+      spreadsheet.appendChild(rh);
+
+      for (let c = 0; c < COLS; c++) {
+        const cellData = sheetData[r][c];
+        const wrapper = document.createElement('div');
+        wrapper.className = 'cell';
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'cell-input';
+        input.dataset.rid = r;
+        input.dataset.cid = c;
+
+        applyCellStyles(input, cellData.styles);
+        input.value = cellData.computed || cellData.formula || '';
+
+        input.addEventListener('focus', () => {
+          input.value = cellData.formula || cellData.computed || '';
+          lastFocusedCell = input;
+          updateToolbarStyles(cellData.styles);
+        });
+
+        input.addEventListener('blur', () => {
+          const val = input.value.trim();
+          if (val.startsWith('=')) {
+            cellData.formula = val;
+          } else {
+            cellData.formula = "";
+            cellData.computed = val;
+          }
+          recalc();
+        });
+
+        input.addEventListener('keydown', e => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            input.blur();
+            focusNextCell(r, c);
+          }
+        });
+
+        wrapper.appendChild(input);
+        spreadsheet.appendChild(wrapper);
+      }
+    }
+  }
+
+  function applyCellStyles(input, s) {
+    input.style.fontWeight = s.bold ? 'bold' : 'normal';
+    input.style.fontStyle = s.italic ? 'italic' : 'normal';
+    input.style.textDecoration = s.underline ? 'underline' : 'none';
+    input.style.fontSize = s.fontSize + 'px';
+    input.style.fontFamily = s.fontFamily;
+    input.style.color = s.fontColor;
+    input.style.backgroundColor = s.bgColor;
+    input.style.textAlign = s.textAlign;
+  }
+
+  function updateToolbarStyles(s) {
+    boldBtn.classList.toggle('selected', s.bold);
+    italicBtn.classList.toggle('selected', s.italic);
+    underlineBtn.classList.toggle('selected', s.underline);
+    fontSizeSelect.value = s.fontSize;
+    fontFamilySelect.value = s.fontFamily;
+    fontColorInput.value = s.fontColor;
+    bgColorInput.value = s.bgColor;
+    alignLeftBtn.classList.toggle('selected', s.textAlign==='left');
+    alignCenterBtn.classList.toggle('selected', s.textAlign==='center');
+    alignRightBtn.classList.toggle('selected', s.textAlign==='right');
+  }
+
+  // toolbar interactions
+  function updateFocusedStyle(prop, val) {
+    if (!lastFocusedCell) return;
+    const r = +lastFocusedCell.dataset.rid;
+    const c = +lastFocusedCell.dataset.cid;
+    const s = sheets[currentSheetIndex].data[r][c].styles;
+    s[prop] = val; applyCellStyles(lastFocusedCell, s);
+  }
+
+  boldBtn.onclick       = () => updateFocusedStyle('bold',    !(lastFocusedCell && sheets[currentSheetIndex].data[lastFocusedCell.dataset.rid][lastFocusedCell.dataset.cid].styles.bold));
+  italicBtn.onclick     = () => updateFocusedStyle('italic',  !(lastFocusedCell && sheets[currentSheetIndex].data[lastFocusedCell.dataset.rid][lastFocusedCell.dataset.cid].styles.italic));
+  underlineBtn.onclick  = () => updateFocusedStyle('underline',!(lastFocusedCell && sheets[currentSheetIndex].data[lastFocusedCell.dataset.rid][lastFocusedCell.dataset.cid].styles.underline));
+  fontSizeSelect.onchange = () => updateFocusedStyle('fontSize', +fontSizeSelect.value);
+  fontFamilySelect.onchange = () => updateFocusedStyle('fontFamily', fontFamilySelect.value);
+  fontColorInput.oninput   = () => updateFocusedStyle('fontColor', fontColorInput.value);
+  bgColorInput.oninput     = () => updateFocusedStyle('bgColor', bgColorInput.value);
+  alignLeftBtn.onclick     = () => updateFocusedStyle('textAlign','left');
+  alignCenterBtn.onclick   = () => updateFocusedStyle('textAlign','center');
+  alignRightBtn.onclick    = () => updateFocusedStyle('textAlign','right');
+
+  addSheetBtn.onclick = () => {
+    sheets.push({ name:`Sheet${sheets.length+1}`, data:createSheetData() });
+    currentSheetIndex = sheets.length -1;
+    renderSheetTabs(); renderGrid();
+  };
+
+  // formula evaluation (basic +,-,*,/, cell refs, circular detection)
+  function evalFormula(f, data, vis=new Set()) {
+    if (!f.startsWith('=')) return f;
+    if (vis.has(f)) return '#CIRC';
+    vis.add(f);
+    let expr = f.slice(1).replace(/([A-Z]+\d+)/g, m => {
+      const {row,col} = addressToIndexes(m);
+      if (row<0||col<0||row>=ROWS||col>=COLS) return '0';
+      const cell = data[row][col];
+      return cell.formula ? evalFormula(cell.formula,data,vis) || 0 : cell.computed||0;
+    });
+    try {
+      let r = Function(`"use strict";return(${expr})`)();
+      return (typeof r==='number'&&!isNaN(r))? r:'#ERR';
+    } catch {
+      return '#ERR';
+    }
+  }
+
+  function recalc() {
+    const data = sheets[currentSheetIndex].data;
+    for (let r=0; r<ROWS; r++) for (let c=0; c<COLS; c++) {
+      const cell = data[r][c];
+      const input = spreadsheet.querySelector(`input[data-rid="${r}"][data-cid="${c}"]`);
+      if (cell.formula) {
+        const v = evalFormula(cell.formula, data);
+        cell.computed = v;
+        if (document.activeElement !== input) input.value = v;
+        input.classList.toggle('error', v==='#ERR'||v==='#CIRC');
+      } else {
+        if (document.activeElement !== input) input.value = cell.computed;
+        input.classList.remove('error');
+      }
+    }
+  }
+
+  function focusNextCell(r,c) {
+    let nr=r, nc=c+1;
+    if (nc>=COLS) {nc=0; nr++; if(nr>=ROWS) return;}
+    spreadsheet.querySelector(`input[data-rid="${nr}"][data-cid="${nc}"]`)?.focus();
+  }
+
+  // start
+  initSheets();
+</script>
+
+</body>
+</html>
